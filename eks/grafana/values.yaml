@@ -1,0 +1,81 @@
+# Grafana Helm Chart Values
+# Configured for AWS CloudWatch / Container Insights data source
+
+# Service account with IRSA for CloudWatch access
+serviceAccount:
+  create: true
+  name: grafana
+  annotations: {}
+  # Will be set by deploy-grafana.sh:
+  # eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT_ID:role/GrafanaCloudWatchRole
+
+# Grafana admin credentials
+adminUser: admin
+adminPassword: grafana-admin
+
+# Persistence (optional - enable for production)
+persistence:
+  enabled: false
+  # enabled: true
+  # size: 10Gi
+  # storageClassName: gp2
+
+# Service type - LoadBalancer for easy access
+service:
+  type: LoadBalancer
+  port: 80
+  targetPort: 3000
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+
+# Resource limits
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# Grafana configuration
+grafana.ini:
+  server:
+    root_url: "%(protocol)s://%(domain)s/"
+  auth.anonymous:
+    enabled: true
+    org_role: Viewer
+  dashboards:
+    default_home_dashboard_path: /var/lib/grafana/dashboards/container-insights/container-insights.json
+
+# CloudWatch data source (auto-provisioned)
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+      - name: CloudWatch
+        type: cloudwatch
+        access: proxy
+        isDefault: true
+        jsonData:
+          authType: default  # Uses IRSA
+          defaultRegion: us-west-2
+        editable: true
+
+# Dashboard provisioning
+dashboardProviders:
+  dashboardproviders.yaml:
+    apiVersion: 1
+    providers:
+      - name: container-insights
+        orgId: 1
+        folder: "Container Insights"
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/container-insights
+
+# Load dashboards from ConfigMap
+dashboardsConfigMaps:
+  container-insights: grafana-dashboards

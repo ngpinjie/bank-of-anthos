@@ -1,0 +1,46 @@
+# =============================================================================
+# Instrumentation Configuration for Custom Metrics
+# =============================================================================
+# Configures the OpenTelemetry auto-instrumentation to export custom metrics
+# from Python services to the ADOT collector.
+#
+# This overrides the default Application Signals config to:
+# - Use HTTP/protobuf protocol (more reliable for Python)
+# - Point to the dedicated ADOT collector for custom metrics
+# - Disable logs exporter (causes issues with Python auto-instrumentation)
+# =============================================================================
+
+apiVersion: cloudwatch.aws.amazon.com/v1alpha1
+kind: Instrumentation
+metadata:
+  name: bank-of-anthos-instrumentation
+  namespace: default
+spec:
+  exporter:
+    endpoint: http://adot-collector.default:4318
+  propagators:
+    - tracecontext
+    - baggage
+  python:
+    env:
+      # Use HTTP protocol (more reliable than gRPC for Python OTEL)
+      - name: OTEL_EXPORTER_OTLP_PROTOCOL
+        value: http/protobuf
+      # Enable OTLP metrics export
+      - name: OTEL_METRICS_EXPORTER
+        value: otlp
+      # Disable logs (causes 'otlp_proto_grpc not found' error)
+      - name: OTEL_LOGS_EXPORTER
+        value: none
+      # ADOT collector endpoint for metrics
+      - name: OTEL_EXPORTER_OTLP_METRICS_ENDPOINT
+        value: http://adot-collector.default:4318/v1/metrics
+      # Export metrics every 10 seconds
+      - name: OTEL_METRIC_EXPORT_INTERVAL
+        value: "10000"
+      # Disable Python logging auto-instrumentation
+      - name: OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED
+        value: "false"
+      # Disable auto-instrumentation metrics (system, runtime, HTTP)
+      - name: OTEL_PYTHON_DISABLED_INSTRUMENTATIONS
+        value: "system_metrics,runtime_metrics"

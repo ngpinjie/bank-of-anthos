@@ -1,0 +1,123 @@
+# =============================================================================
+# ADOT Collector for Custom OpenTelemetry Metrics
+# =============================================================================
+# This deploys a dedicated ADOT (AWS Distro for OpenTelemetry) collector that:
+# - Receives OTLP metrics from userservice on ports 4317 (gRPC) and 4318 (HTTP)
+# - Exports metrics to CloudWatch under the "BankOfAnthos" namespace
+#
+# Prerequisites:
+# - Run ./setup-iam.sh to create IAM role for CloudWatch access
+# - Annotate the ServiceAccount with the IAM role ARN
+# =============================================================================
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: adot-collector
+  namespace: default
+  annotations:
+    # Set by setup-iam.sh - required for CloudWatch access
+    # eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT_ID:role/adot-collector-cloudwatch-role
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: adot-collector-config
+  namespace: default
+data:
+  collector.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+    processors:
+      batch:
+        timeout: 10s
+        send_batch_size: 1024
+
+    exporters:
+      awsemf:
+        namespace: BankOfAnthos
+        region: us-west-2
+        log_group_name: /aws/eks/bank-of-anthos/custom-metrics
+        log_stream_name: userservice-metrics
+        dimension_rollup_option: NoDimensionRollup
+        resource_to_telemetry_conversion:
+          enabled: true
+
+    service:
+      pipelines:
+        metrics:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [awsemf]
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adot-collector
+  namespace: default
+  labels:
+    app: adot-collector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: adot-collector
+  template:
+    metadata:
+      labels:
+        app: adot-collector
+    spec:
+      serviceAccountName: adot-collector
+      containers:
+        - name: adot-collector
+          image: public.ecr.aws/aws-observability/aws-otel-collector:v0.40.0
+          args:
+            - --config=/conf/collector.yaml
+          ports:
+            - containerPort: 4317
+              name: otlp-grpc
+            - containerPort: 4318
+              name: otlp-http
+          volumeMounts:
+            - name: config
+              mountPath: /conf
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: config
+          configMap:
+            name: adot-collector-config
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: adot-collector
+  namespace: default
+  labels:
+    app: adot-collector
+spec:
+  selector:
+    app: adot-collector
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+  type: ClusterIP

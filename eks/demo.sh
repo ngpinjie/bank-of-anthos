@@ -22,19 +22,30 @@ echo ""
 read -p "Press Enter to kill some pods..."
 echo ""
 
-# Part 2: Crash pods (to trigger restarts)
-echo "[Part 2] Crashing Pods to Trigger Restarts"
+# Part 2: Crash pods multiple times (to trigger multiple restarts)
+echo "[Part 2] Crashing Pods to Trigger Multiple Restarts"
 echo "----------------------------"
-echo "Simulating OOM kill on frontend..."
-kubectl exec -it $(kubectl get pod -l app=frontend -o jsonpath='{.items[0].metadata.name}') -- sh -c 'kill 1' 2>/dev/null || echo "Pod crashed"
+CRASH_ROUNDS=3
+APPS=("frontend" "ledgerwriter" "balancereader" "transactionhistory" "contacts")
+
+for round in $(seq 1 $CRASH_ROUNDS); do
+    echo ""
+    echo "=== Crash Round $round of $CRASH_ROUNDS ==="
+    for app in "${APPS[@]}"; do
+        echo "Crashing $app..."
+        kubectl exec -it $(kubectl get pod -l app=$app -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) -- sh -c 'kill 1' 2>/dev/null || echo "  → $app crashed"
+    done
+
+    if [ $round -lt $CRASH_ROUNDS ]; then
+        echo ""
+        echo "Waiting 15 seconds for pods to restart before next round..."
+        sleep 15
+    fi
+done
+
 echo ""
-echo "Simulating crash on ledgerwriter..."
-kubectl exec -it $(kubectl get pod -l app=ledgerwriter -o jsonpath='{.items[0].metadata.name}') -- sh -c 'kill 1' 2>/dev/null || echo "Pod crashed"
-echo ""
-echo "Simulating crash on balancereader..."
-kubectl exec -it $(kubectl get pod -l app=balancereader -o jsonpath='{.items[0].metadata.name}') -- sh -c 'kill 1' 2>/dev/null || echo "Pod crashed"
-echo ""
-echo "✅ Pods killed. Check Container Insights dashboard now!"
+echo "✅ Crashed ${#APPS[@]} pods x $CRASH_ROUNDS rounds = $((${#APPS[@]} * CRASH_ROUNDS)) total crashes!"
+echo "   Each pod should now show restarts >= $CRASH_ROUNDS"
 echo ""
 echo "Container Insights URL:"
 echo "https://us-west-2.console.aws.amazon.com/cloudwatch/home?region=us-west-2#container-insights:infrastructure/map/EKS:Cluster?~(query~(controls~(CW*3a*3aEKS.cluster~(~'$CLUSTER_NAME))))"

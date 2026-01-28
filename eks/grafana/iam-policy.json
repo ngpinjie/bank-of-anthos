@@ -1,0 +1,40 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CloudWatchReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:DescribeAlarmsForMetric",
+        "cloudwatch:DescribeAlarmHistory",
+        "cloudwatch:DescribeAlarms",
+        "cloudwatch:ListMetrics",
+        "cloudwatch:GetMetricData",
+        "cloudwatch:GetMetricStatistics",
+        "cloudwatch:GetInsightRuleReport"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CloudWatchLogsReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "logs:DescribeLogGroups",
+        "logs:GetLogGroupFields",
+        "logs:StartQuery",
+        "logs:StopQuery",
+        "logs:GetQueryResults",
+        "logs:GetLogEvents"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "EC2DescribeRegions",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DescribeRegions"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

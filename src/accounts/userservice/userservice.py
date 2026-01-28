@@ -29,9 +29,10 @@ from flask import Flask, jsonify, request
 import bleach
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 
-from opentelemetry import trace
+from opentelemetry import trace, metrics
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.propagate import set_global_textmap
 from opentelemetry.exporter.cloud_trace import CloudTraceSpanExporter
 from opentelemetry.propagators.cloud_trace_propagator import CloudTraceFormatPropagator
@@ -175,6 +176,9 @@ def create_app():
         username = bleach.clean(request.args.get('username'))
         password = bleach.clean(request.args.get('password'))
 
+        # Get the login attempts counter from app config
+        login_counter = app.config.get('LOGIN_ATTEMPTS_COUNTER')
+
         # Get user data
         try:
             app.logger.debug('Getting the user data.')
@@ -199,16 +203,30 @@ def create_app():
             app.logger.debug('Creating jwt token.')
             token = jwt.encode(payload, app.config['PRIVATE_KEY'], algorithm='RS256')
             app.logger.info('Login Successful.')
+
+            # Record successful login metric
+            if login_counter:
+                login_counter.add(1, {"status": "success", "failure_reason": "none"})
+
             return jsonify({'token': token}), 200
 
         except LookupError as err:
             app.logger.error('Error logging in: %s', str(err))
+            # Record failed login metric - user not found
+            if login_counter:
+                login_counter.add(1, {"status": "failure", "failure_reason": "user_not_found"})
             return str(err), 404
         except PermissionError as err:
             app.logger.error('Error logging in: %s', str(err))
+            # Record failed login metric - invalid password
+            if login_counter:
+                login_counter.add(1, {"status": "failure", "failure_reason": "invalid_password"})
             return str(err), 401
         except SQLAlchemyError as err:
             app.logger.error('Error logging in: %s', str(err))
+            # Record failed login metric - database error
+            if login_counter:
+                login_counter.add(1, {"status": "failure", "failure_reason": "database_error"})
             return 'failed to retrieve user information', 500
 
     @atexit.register
@@ -234,6 +252,22 @@ def create_app():
         FlaskInstrumentor().instrument_app(app)
     else:
         app.logger.info("🚫 Tracing disabled.")
+
+    # Set up OpenTelemetry Metrics
+    # Note: When running with AWS Application Signals (ADOT), the auto-instrumentation
+    # will configure the MeterProvider with the appropriate exporter to CloudWatch.
+    # We only need to create the meter and counters here.
+    app.logger.info("✅ Setting up custom OpenTelemetry metrics.")
+    meter = metrics.get_meter("userservice", "1.0.0")
+
+    # Custom metric: user.login.attempts
+    # Tracks login attempts with status (success/failure) and failure_reason attributes
+    login_attempts_counter = meter.create_counter(
+        name="user.login.attempts",
+        description="Number of user login attempts",
+        unit="1"
+    )
+    app.config['LOGIN_ATTEMPTS_COUNTER'] = login_attempts_counter
 
     app.config['VERSION'] = os.environ.get('VERSION')
     app.config['EXPIRY_SECONDS'] = int(os.environ.get('TOKEN_EXPIRY_SECONDS'))
